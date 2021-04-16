@@ -1,2 +1,2 @@
 # tools_script
-for script
+for shell script
