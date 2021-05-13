@@ -30,7 +30,7 @@ for apk in ${APK_PATH_user[@]};do
 	echo "1111111122222 ${path2[@]}"
 	for path in ${path2[@]};do
 		path3=`echo $path | awk -F"Android.bp|Android.mk" '{print $1}'| sort -u`
-		ManifestXml=`find $path3 -name "AndroidManifest.xml"`
+		ManifestXml=`find $path3 -maxdepth 1 -name "AndroidManifest.xml"`
 		if [[ -n $ManifestXml ]];then
 			IsManifest=true
 		fi 
