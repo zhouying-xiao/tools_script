@@ -1,0 +1,187 @@
+diff --git a/envsetup.sh b/envsetup.sh
+index 9fe001d04..5e49fc92e 100644
+--- a/envsetup.sh
++++ b/envsetup.sh
+@@ -1452,9 +1452,165 @@ function buildninja() {
+ 		TARGET_PRODUCT_PATH=`ls -l out/target/product/ | awk '/^d/ {print $NF}'| grep -v 'generic\|qssi'`
+ 		echo "$TARGET_PRODUCT_PATH"
+ 	fi
+-        TARGETFILE=(`cat out/ninja_${ANSWER// /_}_${time}.log | grep -o "out/target/product/$TARGET_PRODUCT_PATH/[^obj].*"|awk '{ print $1 }' |sort|uniq`)
++        #TARGETFILE=(`cat out/ninja_${ANSWER// /_}_${time}.log | grep -o "out/target/product/$TARGET_PRODUCT_PATH/[^obj].*"|awk '{ print $1 }' |sort|uniq`)
++        TARGETFILE=(`cat out/ninja_${ANSWER// /_}_${time}.log | grep -o -E "out/target/product/$TARGET_PRODUCT_PATH/(system|system_ext|product|vendor|preload|oem|odm).*"|awk '{ print $1 }' |sort|uniq`)
+ 	echo "target files: ${TARGETFILE[@]}"
+     fi
++   
++}
++
++# out/target/product/qssi/system out/target/product/qssi system.img
++function dump_img(){
++    	local T=$(gettop)
++	if [ -d ${1}_bak ];then
++		rm -rf ${1}_bak
++	fi
++        mv $1 ${1}_bak
++        mkdir $1
++        export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:$T/JrdDiffTool/lib64
++        JrdDiffTool/bin/simg2img $2/$3 $3.ext
++        if [ $? -ne 0 ];then
++            echo "*** Error: simg2img $imgfile error"
++        fi
++        lines=`debugfs -R "ls -p" $3.ext | awk -F"/" '{ print $6 }'`
++	for line in ${lines[@]};do
++		if [[ $line == "." || $line == ".." ]];then
++			continue
++		fi
++		debugfs -R "rdump $line $1" $3.ext
++	done
++	rm -rf $2/$3
++	if [ $3 == 'system.img' ];then
++		prepare_system_folder $1 $2
++	fi
++
++}
++
++function prepare_system_folder(){
++	if [ -d ${2}/root ];then
++		mv ${2}/root ${2}/root_bak
++	fi
++	mv ${1} ${2}/root
++        mv ${2}/root/system $2
++	mkdir -p ${2}/root/system 	
++}
++
++
++function copy_resource(){
++	for resource in ${TARGETFILE[@]};do
++		resource_path=`echo $resource | cut -d/ -f 1-5`
++		resource_path_last=`echo $resource | cut -d/ -f 6-`
++		img_dir=${resource_path##*/}_bak
++		cp -dpRv ${resource_path}_bak/$resource_path_last $resource
++	done
++}
++
++function generate_image(){
++	local T=$(gettop)
++	BIN_PATH=/local/int/transformervzw/JrdDiffTool/bin
++        #export PATH=$PATH:$BIN_PATH 
++        export PATH=$BIN_PATH:$PATH
++	
++	echo "SIGN_SECIMAGE_USEKEY=$SIGN_SECIMAGE_USEKEY build/make/tools/releasetools/build_image.py $1 $T/JrdDiffTool/bin/misc_info.txt $1.img out/target/product/qssi/system"
++	SIGN_SECIMAGE_USEKEY=$SIGN_SECIMAGE_USEKEY build/make/tools/releasetools/build_image.py $1 $T/JrdDiffTool/bin/misc_info.txt $1.img out/target/product/qssi/system
++	if [ $? -ne 0 ];then
++		echo "*** Error: generate $2 failure"
++	fi	
++	
++}
++
++function packkageimg(){
++    local IMAGEPATH
++    local IMGFILE
++    declare -A imgfile_list
++
++    PRODUCT_PATH=/mfs_tablet/teleweb/$TCT_TARGET_PRODUCT/
++    if [[ $TARGET_BUILD_VARIANT == 'userdebug' || $TARGET_BUILD_VARIANT == 'eng' ]];then
++        VERSION_TYPE='daily_version'
++        VERSION=`ls -lt $PRODUCT_PATH/$VERSION_TYPE | grep -o -E "v[0-9A-Z]{4}-[0-9A-Z]$" | head -n 1`
++	echo "the version:$VERSION"
++    elif [[ $TARGET_BUILD_VARIANT == 'user' ]];then
++        VERSION_TYPE='appli'
++        VERSION=`ls -lt $PRODUCT_PATH/$VERSION_TYPE | grep -o -E "v[0-9A-Z]{4}$" | head -n 1`
++	echo "the version:$VERSION"
++    fi
++    #VERSION_PATH=$PRODUCT_PATH/$VERSION_TYPE/$VERSION
++    VERSION_PATH=$PRODUCT_PATH/$VERSION_TYPE/v2C3I-4
++    echo "VERSION_PATH:$VERSION_PATH"
++    if [ -d $VERSION_PATH ];then
++#	    echo "111111:${TARGETFILE[@]} ########## ${#TARGETFILE[@]}"
++#        for (( i=0; i<${#TARGETFILE[@]}; i=i+1 ));do
++#	    echo "TARGETFILE:${TARGETFILE[$i]}"
++#            imgfile=`echo ${TARGETFILE[$i]} | awk -F"/" '{print $5}'`.img
++#            target_path=`echo ${TARGETFILE[$i]} | awk -F"/${img_file%.*}/" '{print $1}'`
++#	    echo "imgfile:$imgfile"
++#            imgfile_list[$target_path]=$imgfile
++#            sudo cp $VERSION_PATH/originfiles/$imgfile $target_path
++	     
++#        done
++	#imgfile_list=`echo ${TARGETFILE[@]} | sed 's/ /\n/g' | awk -F"/" '{print $5}' | sort | uniq`
++        sudo cp $VERSION_PATH/originfiles/misc_info.txt JrdDiffTool/bin/misc_info.txt
++	imgfile_path=`echo ${TARGETFILE[@]} | sed 's/ /\n/g' | cut -d/ -f 1-5 | sort | uniq`
++        echo "new imgfile_list:${imgfile_path[@]}"
++#	parition=("system" "system_ext" "product" "vendor" "preload" "oem" "odm")
++	for path in ${imgfile_path[@]};do
++#		for path_parition in ${parition[@]};do
++#			if [[ ${path##*/} != $path_parition ]];then
++#				echo "do nothing..."
++#				continue 2
++#			fi
++			
++#		done	
++		imgfile=${path##*/}.img
++		imgpath=${path%/*}	
++		projectpath=${imgpath##*/}	
++		echo $imgfile
++		file_context_file=$imgpath/file_contexts.bin
++		sudo cp $VERSION_PATH/originfiles/$imgfile $imgpath
++		if [ $? -ne 0 ];then
++			echo "*** Error: copy $imgfile failure"
++			exit $?
++		fi
++		sudo cp $VERSION_PATH/originfiles/file_contexts_$projectpath.bin $file_context_file
++		if [ $projectpath == 'qssi' ];then
++			sed -i "s%framework_file_contexts.bin%${file_context_file}%g" JrdDiffTool/bin/misc_info.txt
++		else
++			
++			sed -i "s%vendor_file_contexts.bin%${file_context_file}%g" JrdDiffTool/bin/misc_info.txt
++		fi	
++		dump_img $path $imgpath $imgfile
++
++	done
++	copy_resource
++	for PATHIMG in ${imgfile_path[@]};do
++		IMGFILE=${PATHIMG##*/}.img
++		IMGDIR=${PATHIMG%/*}	
++		echo $IMGFILE
++		generate_image $PATHIMG $IMGFILE
++
++		# remove new  bak dirs
++		rm -rf $PATHIMG
++		if [ $IMGFILE == 'system.img' ];then
++		    rm -rf $IMGDIR/root
++		    if [ -d ${IMGDIR}/root_bak ];then
++		        mv ${IMGDIR}/root_bak ${IMGDIR}/root
++		    fi
++		fi
++		mv ${PATHIMG}_bak $PATHIMG
++		# remove new bak dirs
++	done 
++ 
++	
++#	for img in ${imgfile_list[@]};do
++#		sudo cp $VERSION_PATH/originfiles/$img  
++#	done
++#        for file in ${!TARGET_FILE_DICT[@]};do
++#            img_file=${TARGET_FILE_DICT[$file]}
++#            target_path=`echo $file | awk -F"/${img_file%.*}/" '{print $1}'`
++#            sudo cp $VERSION_PATH/originfiles/${TARGET_FILE_DICT[$file]} $target_path
++#        done
++
++    fi
+ }
+ 
+ 
+@@ -1462,7 +1618,14 @@ function rninja() {
+     ninjarule $1
+     echo
+     echo
+-    buildninja ${@:2}
++    buildninja ${@:3}
++   
++#    TARGETFILE=(out/target/product/qssi/system/priv-app/TctCamera/TctCamera.apk out/target/product/qssi/system/priv-app/TctDialer/TctDialer.apk) 
++    value1=`echo $2 | tr '[a-z]' '[A-Z]'`
++    echo "the second option:$value1"
++    if [[ $value1 == 'T' || $value1 == 'TRUE' ]];then
++	packkageimg
++    fi
+ }
+ #added by ying.zhou for compling module 20210407
+ 
